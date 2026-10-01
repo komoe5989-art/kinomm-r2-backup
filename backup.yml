@@ -1,0 +1,40 @@
+name: Manual Rclone Backup
+
+on:
+  workflow_dispatch: 
+
+jobs:
+  rclone-backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Setup Config
+        run: |
+          mkdir -p ~/.config/rclone/
+          echo "${{ secrets.RCLONE_CONFIG }}" | base64 -d > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.SERVICE_ACCOUNT_JSON }}" | base64 -d > ~/.config/rclone/movie-proxy-38fc564bb261.json
+
+      - name: Task 1 - Manual Backup to Cloudflare R2
+        run: |
+          rclone copy gdrive:"Your New Private Name" cloudflare:kinomm-stream --update --transfers 2 --checkers 2 --tpslimit 4 --drive-pacer-min-sleep 100ms -vv
+
+      - name: Task 2 - Generate File List and Sync to Google Sheets
+        env:
+          SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        run: |
+          # 1. Output explicit headers
+          echo "Name,Size,Time" > current_library.csv
+          
+          # 2. Extract full paths recursively, strictly targeting video files
+          rclone lsf cloudflare:kinomm-stream --recursive --include "*.{mp4,mkv,avi,webm,mov,ts}" --format "pst" --csv >> current_library.csv
+
+          # 3. Install dependencies
+          pip install pandas google-api-python-client google-auth
+          
+          # 4. Execute the Python script from the root directory
+          python3 update_sheets.py
